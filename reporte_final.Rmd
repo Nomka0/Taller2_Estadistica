@@ -1,0 +1,309 @@
+---
+title: "Taller 1 - Estadística Descriptiva y EDA"
+author: "Nicolas Bolaños preciado, Marieth Leguizamo Fajardo, Juan Jose Bolaños Delgado, Andres Gerardo Gonzalez"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# 1. Introducción
+
+Este taller aplica herramientas de estadística descriptiva y análisis exploratorio de datos (EDA) a la base **Medical Cost Personal Datasets** (Kaggle), que recoge características de asegurados de un seguro de salud y los costos médicos facturados.
+
+- **Fuente:** Kaggle (autor: mirichoi0218)
+- **Enlace:** https://www.kaggle.com/datasets/mirichoi0218/insurance
+- **Contexto y propósito:** la base permite estudiar cómo se relacionan variables demográficas y de hábitos (edad, sexo, IMC, hijos, tabaquismo, región) con el costo médico individual facturado por el seguro.
+
+# 2. Selección y descripción de la base de datos
+
+```{r carga}
+datos <- read.csv("insurance.csv", stringsAsFactors = TRUE)
+head(datos)
+```
+
+**Unidad de observación:** cada fila corresponde a un asegurado (persona).
+
+## 2.1 Observaciones y variables
+
+```{r dimensiones}
+cat("Observaciones:", nrow(datos), "\nVariables:", ncol(datos), "\n")
+str(datos)
+```
+
+La base tiene **1.338 observaciones y 7 variables**.
+
+## 2.2 Clasificación de variables
+
+| Variable | Descripción | Clasificación |
+|---|---|---|
+| age | Edad (años) | Cuantitativa discreta |
+| sex | Sexo | Cualitativa nominal |
+| bmi | Índice de masa corporal | Cuantitativa continua |
+| children | Número de hijos cubiertos | Cuantitativa discreta |
+| smoker | Fumador (yes/no) | Cualitativa nominal |
+| region | Región de residencia | Cualitativa nominal |
+| charges | Costos médicos facturados | Cuantitativa continua |
+
+Ninguna variable es cualitativa ordinal: las categorías no tienen un orden natural.
+
+## 2.3 Datos faltantes, atípicos e inconsistencias
+
+```{r calidad}
+colSums(is.na(datos))
+sum(duplicated(datos))
+datos[duplicated(datos) | duplicated(datos, fromLast = TRUE), ]
+sapply(c("age", "bmi", "children", "charges"),
+       function(v) length(boxplot.stats(datos[[v]])$out))
+```
+
+```{r boxplots, fig.width=10, fig.height=4}
+par(mfrow = c(1, 3))
+boxplot(datos$age,     main = "Edad",    col = "lightblue")
+boxplot(datos$bmi,     main = "BMI",     col = "lightgreen")
+boxplot(datos$charges, main = "Charges", col = "salmon")
+par(mfrow = c(1, 1))
+```
+
+- **Datos faltantes:** no hay (0 en todas las variables).
+- **Inconsistencias:** 1 registro duplicado (hombre de 19 años, IMC 30,59, noroeste, charges 1.639,56). Es 1 de 1.338 filas, por lo que no altera el análisis.
+- **Atípicos (regla del rango intercuartílico):** `age` y `children` no tienen. `bmi` tiene 9 valores muy altos (máximo 53,13), plausibles. `charges` tiene 139, todos hacia arriba (máximo ≈ 63.770): son asegurados con gastos médicos muy elevados, no errores de digitación, y la distribución es asimétrica a la derecha.
+
+# 3. Procedimiento
+
+## 3.1 Variables cualitativas
+
+```{r funciones}
+tabla_freq <- function(x) {
+  fa <- table(x)
+  fr <- prop.table(fa)
+  data.frame(
+    Categoria  = names(fa),
+    Frec_abs   = as.vector(fa),
+    Frec_rel   = round(as.vector(fr), 4),
+    Porcentaje = round(as.vector(fr) * 100, 2)
+  )
+}
+
+grafico_barras <- function(x, titulo, xlab, colores) {
+  fa  <- table(x)
+  pct <- round(prop.table(fa) * 100, 1)
+  b <- barplot(fa, col = colores, main = titulo, xlab = xlab,
+               ylab = "Frecuencia absoluta", ylim = c(0, max(fa) * 1.15))
+  text(b, fa, labels = paste0(fa, " (", pct, "%)"), pos = 3)
+}
+```
+
+### Sexo
+
+```{r sexo}
+tabla_freq(datos$sex)
+grafico_barras(datos$sex, "Distribución por sexo", "Sexo", c("lightpink", "lightblue"))
+```
+
+**Interpretación:** la muestra está prácticamente balanceada: 49,5% mujeres (662) y 50,5% hombres (676). El sexo no sesga la composición de la base.
+
+### Fumador
+
+```{r fumador}
+tabla_freq(datos$smoker)
+grafico_barras(datos$smoker, "Distribución de fumadores", "¿Fuma?", c("lightgreen", "tomato"))
+```
+
+**Interpretación:** hay un desbalance claro: cerca de 8 de cada 10 asegurados no fuma (79,5%, 1.064) y 2 de cada 10 sí (20,5%, 274). Esta variable será relevante al cruzarla con los costos médicos.
+
+### Región
+
+```{r region}
+tabla_freq(datos$region)
+grafico_barras(datos$region, "Distribución por región", "Región",
+               c("skyblue", "khaki", "salmon", "plum"))
+```
+
+**Interpretación:** las cuatro regiones tienen proporciones muy parecidas (entre 24,2% y 27,2%). El sureste es la más representada (364 asegurados, 27,2%), aunque la diferencia con las demás es pequeña.
+
+## 3.2 Variables cuantitativas
+
+A continuación se analizan las cuatro variables numéricas (`age`, `children`, `bmi`, `charges`).
+
+> **Glosario Rápido para Exposición:**
+>
+> - **Media vs. Mediana:** La media es el promedio aritmético sensible a valores atípicos. La mediana es el centro (50% de los datos a cada lado) y es robusta ante extremos.
+> - **Coeficiente de Variación ($CV$):** Mide la dispersión relativa en porcentaje ($s / \bar{x} \times 100$). Si es $< 20\%$, los datos son **homogéneos** (la media es representativa); si supera el $40\%$, son **muy heterogéneos** (la mediana es mejor).
+> - **Asimetría de Fisher ($\gamma_1$):** Si es positivo ($> 0$), la cola se extiende hacia la derecha (valores altos poco frecuentes inflan la media).
+> - **Regla de Tukey (Atípicos por $IQR$):** Datos que quedan fuera de $[Q_1 - 1.5 \times IQR,\; Q_3 + 1.5 \times IQR]$.
+
+```{r tabla-cuantitativas}
+# Cálculo de estadísticos numéricos
+calc_resumen_num <- function(x) {
+  c(
+    Media   = round(mean(x), 2),
+    Mediana = round(median(x), 2),
+    DesvEst = round(sd(x), 2),
+    CV_pct  = round((sd(x) / mean(x)) * 100, 2),
+    Min     = round(min(x), 2),
+    Max     = round(max(x), 2),
+    Q1      = round(quantile(x, 0.25), 2),
+    Q3      = round(quantile(x, 0.75), 2),
+    IQR     = round(IQR(x), 2),
+    Atipicos = sum(x < (quantile(x, 0.25) - 1.5 * IQR(x)) | x > (quantile(x, 0.75) + 1.5 * IQR(x)))
+  )
+}
+
+resumen_cuant <- t(sapply(datos[, c("age", "children", "bmi", "charges")], calc_resumen_num))
+knitr::kable(resumen_cuant, caption = "Resumen de medidas para variables cuantitativas")
+```
+
+```{r graficos-cuantitativas, fig.width=10, fig.height=7}
+par(mfrow = c(2, 2))
+hist(datos$age, main = "Edad (Simétrica, CV=35.8%)", xlab = "Años", col = "lightblue", border = "white")
+barplot(table(datos$children), main = "Hijos (Moda=0, 42.9%)", xlab = "Número de hijos", col = "lightgreen")
+hist(datos$bmi, main = "IMC (Homogénea, CV=19.9%)", xlab = "kg/m²", col = "khaki", border = "white")
+hist(datos$charges, main = "Cargos (Asimétrica +, CV=91.3%)", xlab = "USD", col = "salmon", border = "white")
+par(mfrow = c(1, 1))
+```
+
+**Interpretación clave de las medidas cuantitativas:**
+1. **`bmi` (IMC):** Es la variable más homogénea del estudio ($CV = 19.89\%$). Su distribución es acampanada y centrada en $\bar{x} = 30.66\text{ kg/m}^2$. El $81.6\%$ tiene sobrepeso u obesidad.
+2. **`charges` (Costos médicos):** Presenta extrema dispersión ($CV = 91.26\%$) y marcada asimetría a la derecha ($\gamma_1 = +1.51$). La media ($\$13{,}270.42$) está inflada por costos catastróficos; la **mediana** ($\$9{,}382.03$) es la medida adecuada.
+3. **`age` (Edad):** Muy balanceada y simétrica entre 18 y 64 años ($CV = 35.84\%$). Media y mediana coinciden en 39 años.
+4. **`children` (Hijos):** Alta concentración en cero ($42.9\%$ sin hijos, $Mo = 0$).
+
+---
+
+## 3.3 Análisis cruzado (Bivariado)
+
+Se seleccionan **tres cruces estratégicos** entre variables de distinta naturaleza para responder las preguntas del taller:
+
+### 3.3.1 Cruce 1: Hábito de Fumar vs. Costos Médicos (`smoker` vs. `charges`)
+*Cualitativa vs. Cuantitativa*
+
+```{r cruzado-smoker-charges}
+# Estadísticos de costos por condición de fumador
+resumen_fumador <- aggregate(charges ~ smoker, data = datos, function(x) {
+  c(N = length(x),
+    Media = round(mean(x), 2),
+    Mediana = round(median(x), 2),
+    DesvEst = round(sd(x), 2),
+    Q1 = round(quantile(x, 0.25), 2),
+    Q3 = round(quantile(x, 0.75), 2),
+    IQR = round(IQR(x), 2))
+})
+print(resumen_fumador)
+```
+
+```{r boxplot-smoker-charges, fig.width=8, fig.height=5}
+boxplot(charges ~ smoker, data = datos,
+        col = c("lightgreen", "tomato"),
+        main = "Costos Médicos según Hábito de Fumar",
+        xlab = "¿Fuma regularmente?",
+        ylab = "Cargos Médicos Anuales (USD)",
+        names = c("No Fumador (n=1,064)", "Fumador (n=274)"))
+
+# Marcación de las medias con rombos rojos
+points(1:2, tapply(datos$charges, datos$smoker, mean), col = "darkred", pch = 18, cex = 1.5)
+legend("topleft", legend = c("Mediana (Línea negra)", "Media aritmética (Rombo rojo)"),
+       col = c("black", "darkred"), pch = c(NA, 18), lty = c(1, NA))
+```
+
+**Interpretación:**
+- **Diferencia contundente:** Fumar es el factor determinante de los costos. La mediana en no fumadores es de **$7,345.41 USD**, mientras que en fumadores se dispara a **$34,456.35 USD** (casi **5 veces mayor**).
+- **Explicación de atípicos:** Este cruce explica por qué aparecían 139 valores atípicos en el análisis de `charges`: casi la totalidad de esos costos elevados pertenecen al grupo de fumadores.
+
+---
+
+### 3.3.2 Cruce 2: Edad vs. Costos Médicos (`age` vs. `charges`)
+*Cuantitativa vs. Cuantitativa*
+
+```{r cruzado-age-charges, fig.width=9, fig.height=5}
+# Coeficiente de correlación de Pearson y Spearman
+cor_p <- cor(datos$age, datos$charges)
+cor_s <- cor(datos$age, datos$charges, method = "spearman")
+cat("Correlación de Pearson (global):", round(cor_p, 4), "\n")
+cat("Correlación de Spearman (global):", round(cor_s, 4), "\n")
+
+# Diagrama de dispersión diferenciando fumadores de no fumadores
+colores <- ifelse(datos$smoker == "yes", "tomato", "skyblue")
+plot(datos$age, datos$charges,
+     col = adjustcolor(colores, alpha.f = 0.7),
+     pch = 19,
+     main = "Relación entre Edad y Costos Médicos (por hábito de fumar)",
+     xlab = "Edad (años)",
+     ylab = "Costos Médicos (USD)")
+
+# Líneas de tendencia
+abline(lm(charges ~ age, data = subset(datos, smoker == "no")), col = "darkblue", lwd = 2)
+abline(lm(charges ~ age, data = subset(datos, smoker == "yes")), col = "darkred", lwd = 2)
+abline(lm(charges ~ age, data = datos), col = "black", lwd = 1.5, lty = 2)
+
+legend("topleft",
+       legend = c("Fumadores (Tendencia roja)", "No fumadores (Tendencia azul)", "Tendencia global"),
+       col = c("tomato", "skyblue", "black"),
+       pch = c(19, 19, NA), lty = c(1, 1, 2), lwd = 2)
+```
+
+**Interpretación:**
+- **Correlación moderada:** Existe una correlación lineal positiva ($r = 0.2990$): a mayor edad, mayores costos médicos en promedio.
+- **Efecto estratificado:** En el gráfico se observan dos bandas paralelas bien definidas. En ambos grupos los costos aumentan con la edad, pero la banda de los fumadores corre unos **$20,000 USD** por encima de los no fumadores en todo el ciclo vital.
+
+---
+
+### 3.3.3 Cruce 3: Sexo vs. Hábito de Fumar (`sex` vs. `smoker`)
+*Cualitativa vs. Cualitativa*
+
+```{r cruzado-sex-smoker, fig.width=7, fig.height=4.5}
+# Tabla de contingencia
+tab_sex_smoker <- table(datos$sex, datos$smoker)
+cat("Frecuencias absolutas:\n")
+print(tab_sex_smoker)
+
+prop_sex_smoker <- round(prop.table(tab_sex_smoker, margin = 1) * 100, 2)
+cat("\nPorcentaje por sexo (%):\n")
+print(prop_sex_smoker)
+
+# Gráfico de barras apiladas
+barplot(t(prop_sex_smoker),
+        col = c("lightgreen", "tomato"),
+        main = "Proporción de Fumadores por Sexo",
+        xlab = "Sexo",
+        ylab = "Porcentaje (%)",
+        ylim = c(0, 115))
+legend("topright", legend = c("No Fumador", "Fumador"), fill = c("lightgreen", "tomato"))
+
+# Prueba Chi-cuadrado de independencia
+chi_test <- chisq.test(tab_sex_smoker)
+print(chi_test)
+```
+
+**Interpretación:**
+- **Asociación estadística:** En los hombres la proporción de fumadores es del **$23.52\%$** (159 de 676), frente al **$17.37\%$** en mujeres (115 de 662).
+- **Prueba Chi-cuadrado:** Con $\chi^2 = 7.7659$ y un valor p de $0.0053$ ($p < 0.05$), se rechaza la hipótesis de independencia: existe una asociación significativa entre el sexo y el hábito de fumar en esta muestra.
+
+---
+
+# 4. Conclusiones
+
+Respondiendo a las preguntas orientadoras del taller:
+
+1. **¿Cuáles son las principales características de los datos?**
+   - El conjunto contiene $1.338$ registros completos sin datos faltantes, equilibrados en sexo ($50.5\%$ hombres, $49.5\%$ mujeres) y con representación uniforme en las cuatro regiones geográficas de EE. UU.
+   - El IMC se comporta de manera normal y homogénea ($CV = 19.89\%$), pero el $81.6\%$ de los asegurados tiene sobrepeso u obesidad ($BMI \ge 25$).
+
+2. **¿Qué patrones o comportamientos fueron identificados?**
+   - La edad y el costo tienen relación directa positiva ($r = 0.2990$), aumentando de manera regular con los años.
+   - Los costos médicos presentan dos poblaciones distintas claramente separadas por el tabaquismo.
+
+3. **¿Se encontraron diferencias importantes entre grupos?**
+   - **Fumadores vs. No fumadores:** Es la mayor disparidad encontrada. La mediana de gastos de un fumador ($$34,456$ USD) es casi $5$ veces mayor a la de un no fumador ($$7,345$ USD).
+   - **Sexo y tabaquismo:** La prevalencia de fumadores es mayor en hombres ($23.5\%$) que en mujeres ($17.4\%$), diferencia estadísticamente significativa ($p = 0.0053$).
+
+4. **¿Se identificaron valores atípicos o comportamientos inusuales?**
+   - Se identificaron $139$ valores atípicos superiores en `charges` ($> \$34,489$ USD). El análisis cruzado demostró que no son errores de digitación, sino siniestros médicos concentrados en asegurados que fuman y tienen sobrepeso.
+
+5. **¿Qué información relevante se obtiene para el contexto del seguro?**
+   - El factor individual con mayor impacto actuarial y financiero en las pólizas de salud no es la edad ni el sexo, sino el **hábito de fumar**.
