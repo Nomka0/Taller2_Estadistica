@@ -1,6 +1,6 @@
 ---
 title: "Punto 3.2: Variables Cuantitativas"
-author: "Equipo de Trabajo"
+# author: "Juan José Bolaños D."
 date: "`r Sys.Date()`"
 output:
   html_document:
@@ -26,7 +26,7 @@ knitr::opts_chunk$set(
 
 Análisis descriptivo de las 4 variables cuantitativas de `insurance.csv`: dos continuas (`bmi`, `charges`) y dos discretas (`age`, `children`).
 
-> **Glosario Rápido para Exposición (Conceptos Estadísticos Clave):**
+> **Glosario**
 >
 > - **Media vs. Mediana:** La media es el promedio aritmético sensible a valores extremos. La mediana es el centro exacto (50% arriba, 50% abajo) y no se altera por datos atípicos.
 > - **Coeficiente de Variación ($CV$):** Mide la dispersión relativa porcentual ($CV = \frac{s}{\bar{x}} \times 100$). Permite comparar variabilidad entre variables con distintas unidades. Si $CV < 20\%$, los datos son **homogéneos** (la media es confiable); si $CV > 40\%$, son **muy heterogéneos** (la mediana es mejor).
