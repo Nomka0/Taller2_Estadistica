@@ -2,16 +2,29 @@
 # Test suite for Punto 3.2: Variables cuantitativas (insurance.csv)
 library(testthat)
 
+find_data_path <- function() {
+  candidates <- c(
+    "insurance.csv",
+    "../../insurance.csv",
+    "../insurance.csv",
+    file.path(getwd(), "insurance.csv")
+  )
+  for (p in candidates) {
+    if (file.exists(p)) return(normalizePath(p))
+  }
+  return(NULL)
+}
+
 test_that("insurance dataset has required quantitative columns and rows", {
-  test_path_data <- if (file.exists("insurance.csv")) "insurance.csv" else "../insurance.csv"
-  skip_if_not(file.exists(test_path_data), "insurance.csv not found")
+  test_path_data <- find_data_path()
+  skip_if(is.null(test_path_data), "insurance.csv not found")
   
   df <- read.csv(test_path_data, stringsAsFactors = FALSE)
   expect_equal(nrow(df), 1338)
   expect_contains(names(df), c("age", "bmi", "children", "charges"))
   
   # Type checks
-  expect_type(df$age, "integer") # or double
+  expect_type(df$age, "integer")
   expect_type(df$children, "integer")
   expect_type(df$bmi, "double")
   expect_type(df$charges, "double")
@@ -24,8 +37,8 @@ test_that("insurance dataset has required quantitative columns and rows", {
 })
 
 test_that("medidas de tendencia central y dispersión coinciden con valores teóricos", {
-  test_path_data <- if (file.exists("insurance.csv")) "insurance.csv" else "../insurance.csv"
-  skip_if_not(file.exists(test_path_data), "insurance.csv not found")
+  test_path_data <- find_data_path()
+  skip_if(is.null(test_path_data), "insurance.csv not found")
   
   df <- read.csv(test_path_data, stringsAsFactors = FALSE)
   
@@ -62,8 +75,8 @@ test_that("medidas de tendencia central y dispersión coinciden con valores teó
 })
 
 test_that("detección de atípicos según criterio de Tukey (IQR)", {
-  test_path_data <- if (file.exists("insurance.csv")) "insurance.csv" else "../insurance.csv"
-  skip_if_not(file.exists(test_path_data), "insurance.csv not found")
+  test_path_data <- find_data_path()
+  skip_if(is.null(test_path_data), "insurance.csv not found")
   
   df <- read.csv(test_path_data, stringsAsFactors = FALSE)
   
